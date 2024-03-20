@@ -10,10 +10,6 @@
 #include <thread>
 #include <iostream>
 
-void run_ioc(boost::asio::io_context& ioc) {
-    ioc.run();
-}
-
 int main(int argc, char** argv) {
     if (argc != 6) {
         std::cerr << "Required arguments: [LOCAL IP], [LOCAL PORT], [SERVER IP], [SERVER PORT], [CLIENT_NUM]\n";
@@ -34,28 +30,36 @@ int main(int argc, char** argv) {
 
     boost::asio::io_context ioc{BOOST_ASIO_CONCURRENCY_HINT_UNSAFE};
     asio_tcp_client_manager tcp_client_manager(ioc);
-    auto on_read = [&ioc, &acks, &bytes_read, count](tcp_socket* sock, unsigned char* buf, int32_t len){
+    auto on_read = [&ioc, &acks, &bytes_read, &sends, client_num](tcp_socket* sock, unsigned char* buf, int32_t len){
         std::memcpy((char*)acks.data() + bytes_read, buf, len);
         bytes_read += len;
         if (bytes_read == sizeof(int64_t) * count) {
+            std::vector<int64_t> diff;
+            for (int i = 0; i < count; ++i) {
+                diff.push_back(acks[i] - sends[i]);
+            }
+            dump_csv(diff, client_num, "asio");
+            print_stats(diff);
             ioc.stop();
         }
     };
+    packet256 packet{};
+    constexpr int32_t packet_size = sizeof(packet);
 
     tcp_socket* tcp_sock = tcp_client_manager.connect(local_ip, local_port, server_ip, server_port, on_read, false);
-    std::thread ioc_thread(run_ioc, std::ref(ioc));
-    packet256 packet{};
-    int32_t packet_size = sizeof(packet);
-    while (reps) {
+    std::function<void(uint64_t)> send_packet_ioc;
+    send_packet_ioc = [&sends, &packet, &ioc, &send_packet_ioc, &tcp_sock](uint64_t reps){
+        if (reps == 0)
+            return;
         sends[count - reps] = std::chrono::system_clock::now().time_since_epoch().count();
-        tcp_client_manager.send(tcp_sock, reinterpret_cast<char*>(&packet), packet_size);
-        --reps;
-    }
-    ioc_thread.join();
-    std::vector<int64_t> diff;
-    for (int i = 0; i < count; ++i) {
-        diff.push_back(acks[i] - sends[i]);
-    }
-    dump_csv(diff, client_num, "asio");
-    print_stats(diff);
+        tcp_sock->send(reinterpret_cast<const char*>(&packet), packet_size);
+        ioc.post([&send_packet_ioc, reps](){
+            send_packet_ioc(reps - 1);
+        });
+        busy_wait_for(std::chrono::microseconds(500));
+    };
+    ioc.post([&send_packet_ioc](){
+        send_packet_ioc(count);
+    });
+    ioc.run();
 }

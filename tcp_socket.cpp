@@ -148,7 +148,7 @@ void asio_tcp_socket::start_receiving() {
                 int br = 0;
                 do {
                     br = int(m_sock.receive(boost::asio::buffer(m_buffer, m_recv_buf_size), 0, err));
-                    std::cout << "[AsioTCPSocket] Bytes read: " << br;
+                    //std::cout << "[AsioTCPSocket] Bytes read: " << br;
                     if (err) [[unlikely]] {
                         std::cerr << "[AsioTCPSocket] Error while receiving";
                         if (err != boost::asio::error::would_block) [[unlikely]] {

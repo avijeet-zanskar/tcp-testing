@@ -119,6 +119,7 @@ int send_packet_exanic(exanic_tx_t* tx, int fd, char* frame, const char* packet,
 }
 
 template<typename T>
+[[gnu::always_inline]] inline
 void busy_wait_for(const T& t) {
     auto start = std::chrono::steady_clock::now();
     auto end = start + t;
