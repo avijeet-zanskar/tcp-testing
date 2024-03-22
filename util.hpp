@@ -5,8 +5,10 @@
 #ifndef EXANIC_TCP_REPRO_UTIL_HPP
 
 #include <sys/socket.h>
+#include <net/ethernet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <netinet/ip.h>
 #include <arpa/inet.h>
 
 #include <chrono>
@@ -21,10 +23,18 @@
 #include <thread>
 
 #include <exanic/exanic.h>
+#include <exanic/fifo_rx.h>
 #include <exanic/fifo_tx.h>
 #include <exasock/extensions.h>
 
-std::pair<exanic*, exanic_tx_t*> reserve_exanic_rx_buffer_for_connection(int fd, size_t size) {
+struct FrameHeader {
+    ether_header eh;
+    iphdr ih;
+    tcphdr uh;
+} __attribute((packed));
+
+
+std::pair<exanic_t*, exanic_tx_t*> reserve_exanic_tx_buffer_for_connection(int fd, size_t size) {
     char dev[16];
     int port;
     if (exasock_tcp_get_device(fd, dev, sizeof(dev), &port) == -1) {
@@ -43,6 +53,20 @@ std::pair<exanic*, exanic_tx_t*> reserve_exanic_rx_buffer_for_connection(int fd,
         return {nullptr, nullptr};
     }
     return {exanic, tx};
+}
+
+exanic_rx_t* acquire_exanic_rx_buffer(exanic_t* exanic, int fd) {
+    char dev[16];
+    int port;
+    if (exasock_tcp_get_device(fd, dev, sizeof(dev), &port) == -1) {
+        std::cerr << "exasock_tcp_get_device() error. " << strerror(errno) << '\n';
+        return nullptr;
+    }
+    exanic_rx_t* rx_buf = exanic_acquire_rx_buffer(exanic, port, 0);
+    if (rx_buf == nullptr) {
+        std::cerr << "exanic_acquire_rx_buffer() error. " << exanic_get_last_error() << '\n';
+    }
+    return rx_buf;
 }
 
 std::optional<int> create_connection_to(const char* server_ip, int server_port) {

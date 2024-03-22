@@ -1,4 +1,6 @@
 #include <unistd.h>
+#include <sys/epoll.h>
+#include <sys/ioctl.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -10,6 +12,8 @@
 
 #include "packet.hpp"
 #include "util.hpp"
+
+constexpr int MAX_EPOLL_EVENTS = 10;
 
 int main(int argc, char** argv) {
     if (argc != 4) {
@@ -31,26 +35,37 @@ int main(int argc, char** argv) {
     constexpr int sixteen_kb = 16 * 1024;
     constexpr int one_twenty_eight_kb = 128 * 1024;
     constexpr int two_fifty_six_kb = 256 * 1024;
-    auto [exanic, tx] = reserve_exanic_rx_buffer_for_connection(fd, one_twenty_eight_kb);
+    auto [exanic, tx] = reserve_exanic_tx_buffer_for_connection(fd, one_twenty_eight_kb);
     if (exanic == nullptr or tx == nullptr) {
+        return EXIT_FAILURE;
+    }
+
+    auto rx = acquire_exanic_rx_buffer(exanic, fd);
+    if (rx == nullptr) {
         return EXIT_FAILURE;
     }
 
     packet256 packet{};
     packet.data[0] = 0;
     char frame[1024];
+    char rx_buf[4096];
     size_t packet_size = sizeof(packet);
     constexpr uint64_t count = 100000;
     uint64_t reps = count;
     std::vector<uint64_t> time_diff(count, -1);
+    size_t bytes_written = 0;
     while (reps) {
         auto start = std::chrono::steady_clock::now().time_since_epoch().count();
         DoNotOptimize(fd);
         int bytes_sent = send_packet_exanic(tx, fd, frame, reinterpret_cast<char*>(&packet), packet_size);
         DoNotOptimize(bytes_sent);
         auto end = std::chrono::steady_clock::now().time_since_epoch().count();
-        time_diff[count - reps] = end - start;
         --reps;
+        ssize_t rx_size = exanic_receive_frame(rx, rx_buf, sizeof(rx_buf), nullptr);
+        if (rx_size > 0) {
+            std::memcpy(time_diff.data() + bytes_written, rx_buf + sizeof(FrameHeader), rx_size - sizeof(FrameHeader));
+            bytes_written += rx_size - sizeof(FrameHeader);
+        }
         busy_wait_for(std::chrono::microseconds(500));
     }
     exanic_release_tx_buffer(tx);
