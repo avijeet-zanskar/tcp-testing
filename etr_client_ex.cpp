@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         --reps;
         ssize_t rx_size = exanic_receive_frame(rx, rx_buf, sizeof(rx_buf), nullptr);
         if (rx_size > 0) {
-            std::memcpy(time_diff.data() + bytes_written, rx_buf + sizeof(FrameHeader), rx_size - sizeof(FrameHeader));
+            std::memcpy((char*)time_diff.data() + bytes_written, rx_buf + sizeof(FrameHeader), rx_size - sizeof(FrameHeader));
             bytes_written += rx_size - sizeof(FrameHeader);
         }
         busy_wait_for(std::chrono::microseconds(500));
